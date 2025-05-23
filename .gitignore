@@ -1,0 +1,29 @@
+--- Python ------------------
+
+.venv/
+venv/
+pycache/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+Build / dist artifacts
+
+build/
+dist/
+wheelhouse/
+
+Virtualenv & Poetry
+
+.env/
+.env*
+*.env
+
+Testing & coverage
+
+.pytest_cache/
+htmlcov/
+coverage.xml
+*.cover

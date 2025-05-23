@@ -6,6 +6,7 @@ torch>=2.3,<3
 sentencepiece>=0.2
 openai>=1.30
 pydantic>=2.7,<3
+pydantic-settings>=2.2,<3
 python-dotenv>=1.0
 textract==1.6.*
 aiofiles>=23
