@@ -1,7 +1,7 @@
-"""Email classification service (zero‑shot) based on Hugging Face transformers.
+"""Email classification service using Hugging Face zero-shot pipeline.
 
-Currently uses `facebook/bart-large-mnli` for multilingual NLI, mapping the
-closest entailment label to a macro-category (Produtivo / Improdutivo).
+Usa `facebook/bart-large-mnli` para decidir se o e-mail é
+**Produtivo** (exige ação) ou **Improdutivo** (cordial / irrelevante).
 """
 
 from __future__ import annotations
@@ -11,11 +11,10 @@ from typing import Literal
 
 from transformers import pipeline
 
-__all__ = ["Category", "classify"]
-
 Category = Literal["Produtivo", "Improdutivo"]
 
-# --- Zero‑shot setup
+# ---------------------------- Modelo & rótulos -----------------------------
+
 _ZS_MODEL = "facebook/bart-large-mnli"
 
 _LABEL_MAP: dict[Category, list[str]] = {
@@ -31,25 +30,28 @@ _LABEL_MAP: dict[Category, list[str]] = {
     ],
 }
 
+# --------------------------- Pipeline singleton ----------------------------
 
 @lru_cache
-def _get_pipeline():  # pragma: no cover (heavy)
-    """Load the transformers pipeline once per process."""
-    return pipeline("text-classification", model=_ZS_MODEL, tokenizer=_ZS_MODEL)
+def _get_pipeline():
+    """Carrega uma única instância do pipeline zero-shot por processo."""
+    return pipeline("zero-shot-classification", model=_ZS_MODEL, tokenizer=_ZS_MODEL)
 
+# --------------------------- Função pública -------------------------------
 
 def classify(text: str) -> Category:
-    """Classify *text* as "Produtivo" or "Improdutivo" using zero‑shot NLI."""
-    clf = _get_pipeline()
+    """Devolve **Produtivo** ou **Improdutivo** para o e-mail fornecido."""
+    if not text.strip():
+        return "Improdutivo"
 
-    # Flatten sublabels for the zero‑shot API
+    clf = _get_pipeline()
     candidate_labels = [lbl for sub in _LABEL_MAP.values() for lbl in sub]
 
-    result = clf(text, candidate_labels=candidate_labels, multi_label=False)[0]
+    result = clf(text, candidate_labels=candidate_labels, multi_label=False)
+    chosen_label = result["labels"][0]
 
-    # Map the chosen sublabel back to our macro category
     for macro, sub in _LABEL_MAP.items():
-        if result["label"] in sub:
-            return macro  # type: ignore [return-value]
+        if chosen_label in sub:
+            return macro  # type: ignore[return-value]
 
-    return "Improdutivo"  # fallback; shouldn't normally happen
+    return "Improdutivo"  # fallback defensivo

@@ -1,7 +1,6 @@
 """Generate an automatic reply for an e‑mail based on its category.
-
-Combines our internal classifier (`services.nlp`) with OpenAI's Chat Completions
-API to craft a short, polite answer in Portuguese.
+Adds graceful degradation when the OpenAI API is unavailable (e.g., quota
+exceeded) so the backend never returns HTTP 500.
 """
 
 from __future__ import annotations
@@ -9,21 +8,26 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Tuple
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError, RateLimitError
 
 from ..core.config import settings
 from .nlp import Category, classify
 
 __all__ = ["suggest"]
 
+# ---------------------------------------------------------------------------
 # OpenAI client (singleton)
+# ---------------------------------------------------------------------------
 
 @lru_cache
 def _get_client() -> OpenAI:  # pragma: no cover
+    """Create a single OpenAI client per process."""
     return OpenAI(api_key=settings.openai_api_key)
 
 
+# ---------------------------------------------------------------------------
 # Prompts & templates
+# ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = (
     "Você é um atendente cordial de uma instituição financeira. "
@@ -39,27 +43,39 @@ _TEMPLATE = {
     ),
 }
 
+_FALLBACK_ASSISTANT = (
+    "Desculpe, não consegui gerar uma resposta automática no momento. "
+    "Encaminhei sua mensagem para a equipe responsável."
+)
 
-# Public API
+
+# ---------------------------------------------------------------------------
+# Public helper
+# ---------------------------------------------------------------------------
 
 def suggest(text: str) -> Tuple[str, Category]:
-    """Return a tuple (reply, category) for the given e‑mail *text*."""
+    """Return ``(reply, category)`` for the given e‑mail *text*.
+
+    * Classifica o e‑mail usando zero‑shot (``classify``).
+    * Gera resposta com OpenAI; se falhar (quota, auth, rede), usa fallback.
+    """
 
     category = classify(text)
 
-    client = _get_client()
-
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",  # lighter, cheaper, fast
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": text},
-        ],
-        max_tokens=200,
-        temperature=0.3,
-    )
-
-    assistant_reply = completion.choices[0].message.content.strip()
+    try:
+        client = _get_client()
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        assistant_reply = completion.choices[0].message.content.strip()
+    except (OpenAIError, RateLimitError):  # quota, auth, network…
+        assistant_reply = _FALLBACK_ASSISTANT
 
     reply = _TEMPLATE[category].format(assistant=assistant_reply)
     return reply, category
